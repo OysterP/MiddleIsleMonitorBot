@@ -5,19 +5,23 @@ from telegram.ext import Updater, InlineQueryHandler, CommandHandler, run_async
 import time
 import logging
 from tinydb import TinyDB, Query
+import json
 
-def pollAldiSite(url, htmlType, htmlClass, product):
-    page = requests.get(url)
+# processes json data contained in a scripts element of site
+def scrapeAldiSite(page):
     soup = BeautifulSoup(page.content, 'html.parser')
-    priceField = soup.find_all(htmlType, class_=htmlClass)[0].get_text()
-    #m = re.search(".*Product no longer available.*",priceField)
-    if not re.search(".*Product no longer available.*", priceField.strip('\r\n\t ')):
-        return priceField.strip('\r\n\t ')
+    # Grab Json data contianed hidden within body of site.
+    siteData = json.loads(str(soup.find("script",type="application/ld+json").contents[0]))
+    # return results only if item can be ordered online.
+    if siteData['offers']['availability'] in ('InStock','PreOrder'):
+        return (siteData['offers']['price'],siteData['offers']['availability'])
 
 @run_async
 def botIt(update,context):
-    #something
+    # Grab requestor's chat ID, ready to start conversation
     chat_id = update.message.chat_id
+    
+    # URL validation
     if len(context.args) == 0:
         context.bot.send_message(chat_id,"No URL provided")
         return
@@ -25,31 +29,28 @@ def botIt(update,context):
     if not re.match('(^http[s]?:\/{2})|(^\/{1,2})',url):
         context.bot.send_message(chat_id,"URL "+url+" not valid")
         return
+    
     productName = " ".join(context.args[1:])
+    # Get product name from first h1 HTML field of page if not specified by user.
     if not productName:
         html = requests.get(url)
         productName = BeautifulSoup(html.content, 'html.parser').h1.get_text()
     context.bot.send_message(chat_id,"Don't worry, I'll let you know when "+productName+" is back available.")
 
-    #url = "https://www.aldi.co.uk/ferrex-patio-and-wall-cleaner/p/090494322104400"
-    #url = "https://www.aldi.co.uk/ferrex-18v-cordless-mitre-saw/p/021106302710800"
-    # productName = 'Ferrex Patio And Wall Cleaner'
-    #productName = 'Ferrex 18v cordless mitre saw'
     while True:
-        result = pollAldiSite(url, 'span', 'product-price__value',
-                        productName)
+        # Grab latest content from site
+        html = requests.get(url)
+        result = scrapeAldiSite(html)
+        # If a result is returned, notify user
         if result:
-            message = "The "+productName+" is now available at Aldi for £"+result \
+            message = "The "+productName+" is now available at Aldi for £"+result[0] \
                             +"!\n"+url
             context.bot.send_message(chat_id,message)
             break
         else:
-            # context.bot.send_message(chat_id,"No die")
-            time.sleep(600)
-
-      
-    
-
+            # Give 5 mins before polling again for availability
+            time.sleep(300)
+            
 def main():
     logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                      level=logging.INFO)

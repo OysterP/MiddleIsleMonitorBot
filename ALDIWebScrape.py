@@ -30,6 +30,19 @@ def botIt(update,context):
         context.bot.send_message(chat_id,"URL "+url+" not valid")
         return
     
+    # Build regex for validating provided URL against supported sites
+    supportedSites=('aldi.co.uk',)
+    siteRegex=""
+    for site in supportedSites:
+        if(siteRegex):
+            siteRegex+='|'
+        siteRegex+='(.*'+site+'/.*)'
+    # exit if not a currently supported site
+    if not re.match(siteRegex,url):
+        context.bot.send_message(chat_id,"Website not currently supported")
+        context.bot.send_message(chat_id,"Currently supported sites are:\r\n"+("\r\n".join(supportedSites)))
+        return
+    
     productName = " ".join(context.args[1:])
     # Get product name from first h1 HTML field of page if not specified by user.
     if not productName:

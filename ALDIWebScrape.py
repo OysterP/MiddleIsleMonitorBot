@@ -9,7 +9,7 @@ import time
 import logging
 from tinydb import TinyDB, Query
 import json
-import configparser
+from configparser import ConfigParser
 import threading
 import random
 
@@ -98,13 +98,16 @@ def main():
     logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                      level=logging.INFO)
     
+    # Read config file
+    config = ConfigParser()
+    config.read('config.ini')
+    
     # Initialise DB for use globally
     global db
-    db = TinyDB('db.json')
+    db = TinyDB(config.get('DB','file'))
     
-    # token = '***REMOVED***'
-    token = '***REMOVED***'
     # create basic API bot for performing messages without context
+    token = config.get('Bot','token')
     bot = telegram.Bot(token)
     # Send bot to the montitor routine to allow posting messages when a result has returned.
     monitorThread = threading.Thread(target=monitor,args=(bot,))

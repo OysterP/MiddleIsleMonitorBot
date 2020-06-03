@@ -1,11 +1,41 @@
 import requests
 import re
 from bs4 import BeautifulSoup
+import telegram
 from telegram.ext import Updater, InlineQueryHandler, CommandHandler, run_async
+from telegram.error import (TelegramError, Unauthorized, BadRequest, 
+                            TimedOut, ChatMigrated, NetworkError)
 import time
 import logging
 from tinydb import TinyDB, Query
 import json
+import configparser
+import threading
+import random
+
+def monitor(bot):
+    logging.info("Starting monitoring loop")
+    while True:
+        logging.info("Grabbing all records from DB")
+        records = db.all()
+        logging.info("Recursing through records")
+        for record in records:
+            # Grab latest content from site
+            html = requests.get(record['url'])
+            result = scrapeAldiSite(html)
+            # If a result is returned, notify user
+            if result:
+                message = "The "+record['productName']+" is now available at Aldi for £"+result[0] \
+                                +"!\n"+record['url']
+                try:
+                    bot.send_message(record['chat_id'],message)
+                except (Unauthorized,BadRequest):
+                    db.remove((Query().chat_id == record['chat_id']))
+                db.remove((Query().chat_id == record['chat_id']) & (Query().url == record['url']))
+            time.sleep(1)
+            time.sleep(1)
+        logging.info("Monitor pausing for 60 seconds")
+        time.sleep(60)
 
 # processes json data contained in a scripts element of site
 def scrapeAldiSite(page):
@@ -30,6 +60,12 @@ def botIt(update,context):
         context.bot.send_message(chat_id,"URL "+url+" not valid")
         return
     
+    # Check if already part of DB.
+    qry = Query()
+    if len(db.search((qry.chat_id == chat_id) & (qry.url == url))):
+        context.bot.send_message(chat_id,"URL "+url+" is already being monitored for you.")
+        return
+    
     # Build regex for validating provided URL against supported sites
     supportedSites=('aldi.co.uk',)
     siteRegex=""
@@ -48,26 +84,33 @@ def botIt(update,context):
     if not productName:
         html = requests.get(url)
         productName = BeautifulSoup(html.content, 'html.parser').h1.get_text()
+    
+    # Send confirmation to user
     context.bot.send_message(chat_id,"Don't worry, I'll let you know when "+productName+" is back available.")
+    
+    # Add entry into DB to be monitored.
+    db.insert({'chat_id': chat_id,'url': url, 'productName': productName})
 
-    while True:
-        # Grab latest content from site
-        html = requests.get(url)
-        result = scrapeAldiSite(html)
-        # If a result is returned, notify user
-        if result:
-            message = "The "+productName+" is now available at Aldi for £"+result[0] \
-                            +"!\n"+url
-            context.bot.send_message(chat_id,message)
-            break
-        else:
-            # Give 5 mins before polling again for availability
-            time.sleep(300)
             
 def main():
+    
+    # Intiialise logging
     logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                      level=logging.INFO)
-    teleUpdater = Updater('***REMOVED***', use_context=True)
+    
+    # Initialise DB for use globally
+    global db
+    db = TinyDB('db.json')
+    
+    # token = '***REMOVED***'
+    token = '***REMOVED***'
+    # create basic API bot for performing messages without context
+    bot = telegram.Bot(token)
+    # Send bot to the montitor routine to allow posting messages when a result has returned.
+    monitorThread = threading.Thread(target=monitor,args=(bot,))
+    monitorThread.start()
+    # Below used to listen for messages and take action asyncronously via the botIt function
+    teleUpdater = Updater(token, use_context=True)
     dp = teleUpdater.dispatcher
     dp.add_handler(CommandHandler('start',botIt))
     dp.add_handler(CommandHandler('check',botIt))

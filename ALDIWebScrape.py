@@ -11,9 +11,11 @@ from tinydb import TinyDB, Query
 import json
 from configparser import ConfigParser
 import threading
-import random
 
 def monitor(bot):
+    logging.info("Connecting to DB")
+    db = getDB()
+    
     logging.info("Starting monitoring loop")
     while True:
         logging.info("Grabbing all records from DB")
@@ -45,11 +47,19 @@ def scrapeAldiSite(page):
     # return results only if item can be ordered online.
     if siteData['offers']['availability'] in ('InStock','PreOrder'):
         return (siteData['offers']['price'],siteData['offers']['availability'])
+    return False
 
 @run_async
 def botIt(update,context):
+    
     # Grab requestor's chat ID, ready to start conversation
     chat_id = update.message.chat_id
+    
+    logging.info("Chat id: {0}".format(chat_id))
+    
+    # Connect to DB
+    logging.info("Get DB")
+    db = getDB()
     
     # URL validation
     if len(context.args) == 0:
@@ -91,6 +101,13 @@ def botIt(update,context):
     # Add entry into DB to be monitored.
     db.insert({'chat_id': chat_id,'url': url, 'productName': productName})
 
+def getDB():
+    # Read config file
+    config = ConfigParser()
+    config.read('config.ini')
+    db = TinyDB(config.get('DB','file'))
+    
+    return db
             
 def main():
     
@@ -101,10 +118,6 @@ def main():
     # Read config file
     config = ConfigParser()
     config.read('config.ini')
-    
-    # Initialise DB for use globally
-    global db
-    db = TinyDB(config.get('DB','file'))
     
     # create basic API bot for performing messages without context
     token = config.get('Bot','token')
